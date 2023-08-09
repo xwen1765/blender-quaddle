@@ -94,7 +94,7 @@ def getBodyCenter():
 #Arm_Angle_Left 14
 #Arm_Angle_Right 15
 #Beak 16
-def generateQuaddle(traits, name, output_path, export_png, export_fbx):
+def generateQuaddle(traits, name, output_path, export_png, export_fbx, export_gltf):
     # Delete all objects in the scene
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
@@ -222,6 +222,18 @@ def generateQuaddle(traits, name, output_path, export_png, export_fbx):
     #export fbx
     if export_fbx == 'True' or export_fbx == True:
         bakeImage.export_fbx(name, export_path)
+        
+    if export_gltf == 'True' or export_gltf == True:
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in bpy.context.scene.objects:
+            if obj.type == 'MESH':
+                obj.select_set(True)
+        # Export selected objects as FBX
+        gltf_name =  name + ".gltf"
+        gltf_path = os.path.join(export_path, gltf_name)
+        bpy.ops.export_scene.gltf(filepath=gltf_path, export_format='GLTF_EMBEDDED')
+        # Deselect all objects
+        bpy.ops.object.select_all(action='DESELECT')
     return "Finished!"
 
 
@@ -297,8 +309,15 @@ if __name__ == "__main__":
                 export_fbx = False
                 print("Export FBX sets to False")
                 # add further error handling here as needed
-
-
+        
+        if "--export_gltf" in argv:
+            export_gltf_index = argv.index("--export_gltf")
+            if export_gltf_index < len(argv) - 1:
+                export_gltf = argv[export_gltf_index + 1]
+            else:
+                export_gltf = False
+                print("Export GLTF sets to False")
+                # add further error handling here as needed
 
     if input_path is not None:
         for file_name in os.listdir(input_path):
@@ -316,7 +335,7 @@ if __name__ == "__main__":
 
                     start_time = time.time()
 
-                    generateQuaddle([int(x) for x in current_trait], name, output_path, export_png, export_fbx)
+                    generateQuaddle([int(x) for x in current_trait], name, output_path, export_png, export_fbx, export_gltf)
 
                     end_time = time.time()
                     running_time = end_time - start_time
