@@ -1,5 +1,7 @@
 import bpy
 import os, sys, math
+from PIL import Image
+
 #print(os.getcwd())
 #sys.path.insert(0, '/Users/wenxuan/Documents/Blender/')
 

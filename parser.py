@@ -196,7 +196,16 @@ def generateQuaddle(traits, name, output_path, export_png, export_fbx, export_gl
         addBeak.addBeak(body_type)
 
     if export_png == 'True' or export_png == True:
-        helperFunctions.camera_light_action(name, export_path, True, True, True)
+        body = bpy.data.objects.get("Body")
+        head = bpy.data.objects.get("Head")
+        total_center = helperFunctions.calculate_center(body);
+        if body and head:
+            body_center = helperFunctions.calculate_center(body)
+            head_center = helperFunctions.calculate_center(head)
+            total_center = (body_center + head_center) / 2
+        else:
+            print("Either 'Body' or 'Head' object is not found in the scene")
+        helperFunctions.camera_light_action(name, export_path, True, True, True, total_center)
         
     #Save location of body
     obj = bpy.data.objects.get("Body")
@@ -208,7 +217,7 @@ def generateQuaddle(traits, name, output_path, export_png, export_fbx, export_gl
     # Scale all selected objects down by a factor of 20
     bpy.ops.object.select_all(action='SELECT')
     saved_location = obj.location
-    bpy.ops.transform.resize(value=(0.05, 0.05, 0.05))
+    bpy.ops.transform.resize(value=(0.1, 0.1, 0.1))
     bpy.context.scene.cursor.location = (0.0,0.0,0.0)
     bpy.ops.transform.translate(value=-saved_location)
     bpy.ops.object.select_all(action='DESELECT')
@@ -231,7 +240,7 @@ def generateQuaddle(traits, name, output_path, export_png, export_fbx, export_gl
         # Export selected objects as FBX
         gltf_name =  name + ".gltf"
         gltf_path = os.path.join(export_path, gltf_name)
-        bpy.ops.export_scene.gltf(filepath=gltf_path, export_format='GLTF_EMBEDDED')
+        bpy.ops.export_scene.gltf(filepath=gltf_path, export_format='GLTF_EMBEDDED',export_apply = True)
         # Deselect all objects
         bpy.ops.object.select_all(action='DESELECT')
     return "Finished!"
@@ -346,6 +355,6 @@ if __name__ == "__main__":
         test_name = generateName(test_set)
         for index in range(len(test_set)):
             name = "test" + "_" + test_name[index]
-            generateQuaddle(test_set[index], name, dir, 'False', 'False')
+            generateQuaddle(test_set[index], name, dir, 'True', 'False', 'False')
             
             
