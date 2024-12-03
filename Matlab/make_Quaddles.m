@@ -1,37 +1,17 @@
-% Copyright (c) 2024, Thilo Womelsdorf
-% This file is part of the Quaddle 2.0,
-% see https://m-use.psy.vanderbilt.edu/quaddles-2/ for documentation and details. Matlab scripts and Blender scripts associated with Quaddle 2.0 are free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation,  either version 3 of the License, or (at your option) any later version. 
-% Quaddle2.0 matlab scripts and blender scripts are distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details. A copy of the GNU General Public License can be found at http://www.gnu.org/licenses/
+function cfg_out = make_Quaddles2_03(cfg)
 
-
-function cfg_out = make_Quaddles2_01(cfg)
-
-cfg = [];
+% cfg = [];
 
 %  --- --- --- --- --- --- --- --- --- --- 
 %  --- CONFIGURATION VARIABLES - change as desired: 
 %  --- --- --- --- --- --- --- --- --- --- 
-cfg.nVaryingDimensions = 1; % to see/change which dimensions correspond to which value here, see init_dimensions method
-cfg.num_quaddles = 7; % num quaddles to produce (make sure this doesn't exceed available dimensions)
 
-cfg.export_png = 'True'; %toggle png writing? 'False' or 'True';
-cfg.export_fbx = 'False'; %toggle fbx writing? 'False' or 'True';
-cfg.export_gltf = 'False'; %toggle gltf writing? 'False' or 'True';
 
-cfg.blender_path = '/Applications/Blender.app/Contents/MacOS/Blender'; % Change this to the path to your Blender application
-cfg.blender_file_path = '/Users/leomalchin/Desktop/blender-quaddle/makeQuaddle.blend'; % Change this to your makeQuaddle file path
-cfg.python_script = '/Users/leomalchin/Desktop/blender-quaddle/parser.py'; % Change this to your Python script path
-cfg.input_path = [pwd '/CONFIGS/StimConfig/']; % this is where you'll store txt files for each object
-cfg.output_path = [pwd '/CONFIGS/generated_quaddles/']; % this is where the output quaddles will be stored
-%  --- --- --- --- --- --- --- --- --- --- 
-%  --- --- --- --- --- --- --- --- --- ---
-%  --- --- --- --- --- --- --- --- --- --- 
-
-if cfg.nVaryingDimensions > 15
-    cfg.controlRandomnessMode0_controlFeaturesMode1 = 0;
-else
-    cfg.controlRandomnessMode0_controlFeaturesMode1 = 1;
-end
+% if cfg.nVaryingDimensions > 15
+%     cfg.controlRandomnessMode0_controlFeaturesMode1 = 0;
+% else
+%     cfg.controlRandomnessMode0_controlFeaturesMode1 = 1;
+% end
 
 if cfg.nVaryingDimensions < 1 || cfg.nVaryingDimensions > 17
     error('nVaryingDimensions set to a value out of range');
@@ -41,10 +21,11 @@ cfg_out = [];
 cfg_out.objectTables      = {};
 cfg_out.objectFileNames   = {};
 cfg_out.objectFileFolders = {};
+cfg_out.samples = {};
 
-if ~exist(cfg.input_path), mkdir(cfg.input_path), end
+if ~exist(cfg.blender_input_path), mkdir(cfg.blender_input_path), end
 if ~exist(cfg.output_path), mkdir(cfg.output_path), end
-stim_iPath = cfg.input_path;
+stim_iPath = cfg.blender_input_path;
 
 gltf_files = struct('name', {}, 'idx', {}); % Initialize struct for stimdef writing
 
@@ -97,13 +78,15 @@ for q = 1:cfg.num_quaddles
     end
     
     
-    if cfg.nVaryingDimensions == 16
-        ss_loBound = 6.5;
-        ss_upBound = 8;
-    elseif cfg.nVaryingDimensions == 17
-        ss_loBound = 9.25;
-        ss_upBound = 13.0;
-    end
+%     if cfg.nVaryingDimensions == 16
+%         ss_loBound = 6.5;
+%         ss_upBound = 8;
+%     elseif cfg.nVaryingDimensions == 17
+%         ss_loBound = 9.25;
+%         ss_upBound = 13.0;
+%     end
+	ss_loBound = cfg.ss_loBound;
+	ss_upBound = cfg.ss_upBound;
 
 
     if all(all_samples(1,:) == 0) && cfg.controlRandomnessMode0_controlFeaturesMode1 == 0 % skip SS check when only one sample
@@ -151,7 +134,7 @@ for q = 1:cfg.num_quaddles
 
     % Define your list of numbers
     my_list = samples(1,:); % USED TO BE my_list = samples(i,:);
-    
+     
     % Find the next available file index
     fileIndex = q; % Use the loop index for file numbering
     objectNames{end+1} = ['Object Table_' sprintf('%03d', fileIndex) '.txt'];
@@ -190,20 +173,42 @@ generate_object(cfg);
     % --- generate objects
 
     cfg_out.objectTables = objectNames;
-    
+    cfg_out.samples = all_samples;
     % --- collect generated filenames:
     objectFileNames   = {};
     objectFileFolders = {};
-        dirinfo = dir(cfg.output_path);
-        if isempty(dirinfo), sprintf('could not open %s\n',cfg.output_path), return, end
-        for j=1:length(dirinfo)
-            if (dirinfo(j).isdir) | strcmp(dirinfo(j).name(1),'.' ),  continue, end
-            if ~isempty(findstr(dirinfo(j).name,'.gltf'))
-                cL = length(objectFileNames) + 1;
-                objectFileFolders{cL} = cfg.output_path;
-                objectFileNames{cL} = dirinfo(j).name;%(1:end-4);
-            end
-        end
+    dirinfo = dir([cfg.output_path '/Stimuli']);
+    if isempty(dirinfo), sprintf('could not open %s\n',cfg.output_path), return, end
+	
+	% Filter out directories and hidden files
+	isValidFile = ~[dirinfo.isdir] & ~startsWith({dirinfo.name}, '.');
+	% Extract valid files
+	validFiles = dirinfo(isValidFile);
+	% Find files with '.gltf' extension
+	gltfFiles = validFiles(endsWith({validFiles.name}, '.gltf'));
+	% Sort the files by date from oldest to newest
+	[~, sortIdx] = sort([gltfFiles.datenum]);
+	sortedGltfFiles = gltfFiles(sortIdx);
+	% Initialize cell arrays if empty
+	if ~exist('objectFileFolders', 'var') || isempty(objectFileFolders)
+    	objectFileFolders = {};
+		objectFileNames = {};
+	end
+	% Populate the cell arrays with sorted files
+	for j = 1:length(sortedGltfFiles)
+    	cL = length(objectFileNames) + 1;
+    	objectFileFolders{cL} = cfg.output_path;
+    	objectFileNames{cL} = sortedGltfFiles(j).name; % (1:end-4) if needed
+	end
+
+%     for j=1:length(dirinfo)
+%         if (dirinfo(j).isdir) || strcmp(dirinfo(j).name(1),'.' ),  continue, end
+%         if ~isempty(findstr(dirinfo(j).name,'.gltf'))
+%             cL = length(objectFileNames) + 1;
+%             objectFileFolders{cL} = cfg.output_path;
+%             objectFileNames{cL} = dirinfo(j).name;%(1:end-4);
+%         end
+%     end
 
 cfg_out.objectFileNames   = objectFileNames;
 cfg_out.objectFileFolders = objectFileFolders;
@@ -345,14 +350,14 @@ if ~isfield(cfg,'export_png')
     cfg.export_fbx = 'False';
     cfg.export_gltf = 'True';
 end
-cfg.blender_path = '/Applications/Blender.app/Contents/MacOS/Blender'; % Change this to your Blender path
-cfg.blender_file_path = '/Users/leomalchin/Desktop/blender-quaddle/makeQuaddle.blend'; % Change this to your makeQuaddle path
-cfg.python_script = '/Users/leomalchin/Desktop/blender-quaddle/parser.py'; % Change this to your Python script path
-cfg.input_path = [pwd '/CONFIGS/StimConfig/'];
-cfg.output_path = [pwd '/CONFIGS/generated_quaddles/'];
-    
+% cfg.blender_path = '/Applications/Blender.app/Contents/MacOS/Blender'; % Change this to your Blender path
+% cfg.blender_file_path = '/Users/wenxuan/Desktop/blender-quaddle/makeQuaddle.blend'; % Change this to your makeQuaddle path
+% cfg.python_script = '/Users/wenxuan/Desktop/blender-quaddle/parser.py'; % Change this to your Python script path
+% cfg.blender_input_path = [pwd '/CONFIGS/StimConfig/'];
+% cfg.output_path = [pwd '/CONFIGS/generated_quaddles/'];
+%     
     command = sprintf('"%s" --background "%s" --python "%s" -- --input_path "%s" --output_path "%s" --export_fbx "%s" --export_png "%s" --export_gltf "%s"', ...
-        cfg.blender_path, cfg.blender_file_path, cfg.python_script, cfg.input_path, cfg.output_path, cfg.export_fbx, cfg.export_png, cfg.export_gltf);
+        cfg.blender_path, cfg.blender_file_path, cfg.python_script, cfg.blender_input_path, cfg.output_path, cfg.export_fbx, cfg.export_png, cfg.export_gltf);
 
     system(command);
 end
