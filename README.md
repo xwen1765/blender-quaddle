@@ -6,4 +6,4 @@
 [![How to Install Quaddle 2.0](https://img.youtube.com/vi/FOaKS-hQfYI/0.jpg)](https://www.youtube.com/watch?v=FOaKS-hQfYI)
 
 ## To use the MATLAB script to generate Quaddles, you can refer to the documentation:
-[](/MATLAB/README_make_quaddles_matlab.pdf)
+[README_make_quaddles_matlab](/Matlab/README_make_quaddles_matlab.pdf)
