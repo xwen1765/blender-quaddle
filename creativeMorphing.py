@@ -1,173 +1,198 @@
 import bpy
-import bmesh
+import os
+import sys
+import importlib
 import math
 
-def create_base_cube(height, size):
+#generate path
+dir = os.path.dirname(bpy.data.filepath)
+if not dir in sys.path:
+    sys.path.append(dir)
+    
+
+# --- Import and Reload Custom Modules ---
+try:
+    import createObject
+    importlib.reload(createObject)
+    import bakeImage
+    importlib.reload(bakeImage)
+    import addImageTextures
+    importlib.reload(addImageTextures)
+    print("Successfully imported 'createObject.py' and 'bakeImage.py'")
+except ImportError as e:
+    print(f"Error: Could not import a required module: {e}")
+    print(f"Please ensure the files are located at: {scripts_path}")
+    # Use dummy classes to prevent errors if an import fails
+    class createObject: pass
+    class bakeImage: pass
+
+def createCone():
+    bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=6, radius2=0.1, depth=9, location=(0, 0, 0))
+    Cone = bpy.context.active_object
+    Cone.name = 'Body'
+    return Cone, 'Cone'
+def createUpsideDownCone():
+    bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=6, radius2=0.1, depth=9, location=(0, 0, 0))
+    Cone = bpy.context.active_object
+    Cone.name = 'Body'
+    return Cone, 'UpsideDownCone'
+def createCube():
+    bpy.ops.mesh.primitive_cube_add(size= 8, location=(0, 0, 0))
+    cube = bpy.context.active_object
+    cube.name = 'Body'
+    return cube, 'Cube'
+
+# --- Function to map string names to creation functions ---
+object_creation_map = {
+    "Sphere": createObject.createSphere,
+    "VerticalOblong": createObject.createVerticalOblong,
+    "HorizontalOblong": createObject.createHorizontalOblong,
+    "Cube": createCube,
+#    "Diamond": createObject.createDiamond, 
+    "Cylinder": createObject.createCylinder,
+    "UpFrustum": createObject.createUpFrustum,
+    "DownFrustum": createObject.createDownFrustum,
+    "Cone": createCone,
+    "UpsideDownCone": createUpsideDownCone,
+}
+
+# --- Core Morphing and Rendering Functions ---
+
+def create_morphed_object(source_name, target_name, morph_value):
     """
-    Creates a rectangular prism (cube) centered at the origin.
-
-    Args:
-        height (float): The total height of the prism along the Z-axis.
-        size (float): The width and depth of the square base along X and Y.
+    Creates two objects by name, morphs the source to the target,
+    deletes the target, and returns the final morphed object.
     """
-    # Ensure we are in object mode to create a new mesh
-    if bpy.context.object and bpy.context.object.mode == 'EDIT':
-        bpy.ops.object.mode_set(mode='OBJECT')
+    if source_name not in object_creation_map:
+        raise ValueError(f"Unknown source object name: {source_name}")
+    source_obj, _ = object_creation_map[source_name]()
+    source_obj.name = "MorphObject_Source"
 
-    # Create a new cube
-    bpy.ops.mesh.primitive_cube_add(size=size, enter_editmode=False, align='WORLD', location=(0, 0, 0))
-    
-    # Get the newly created object
-    obj = bpy.context.active_object
-    obj.name = "MorphingPrism"
-    
-    # Adjust the dimensions
-    obj.dimensions = (size, size, height)
-    
-    # Apply the scale to make the dimension changes real
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    
-    return obj
+    if target_name not in object_creation_map:
+        raise ValueError(f"Unknown target object name: {target_name}")
+    target_obj, _ = object_creation_map[target_name]()
+    target_obj.name = "MorphObject_Target"
 
-def morph_to_cylinder(obj, morph_percentage):
+    bpy.context.view_layer.objects.active = source_obj
+    source_obj.select_set(True)
+    bpy.ops.object.shade_smooth()
+
+    source_obj.shape_key_add(name='Basis')
+    sw_modifier = source_obj.modifiers.new(name='Shrinkwrap', type='SHRINKWRAP')
+    sw_modifier.target = target_obj
+    sw_modifier.wrap_method = 'NEAREST_VERTEX'
+    bpy.ops.object.modifier_apply_as_shapekey(modifier=sw_modifier.name)
+    
+    morph_key = source_obj.data.shape_keys.key_blocks[-1]
+    morph_key.value = morph_value
+
+    bpy.ops.object.select_all(action='DESELECT')
+    target_obj.select_set(True)
+    bpy.ops.object.delete()
+
+    return source_obj, "MorphObject"
+
+
+def render_frame(obj_to_render, filepath):
     """
-    Morphs the top and bottom faces of a given mesh object from a square to a circle.
-
-    Args:
-        obj (bpy.types.Object): The mesh object to morph.
-        morph_percentage (float): The percentage of the morph (0-100). 
-                                  0 is a full cube, 100 is a full cylinder.
+    Sets up a temporary camera and light, renders the given object
+    to the specified file path, and cleans up the camera and light.
     """
-    if not obj or obj.type != 'MESH':
-        print("Error: Please provide a valid mesh object.")
-        return
+    bpy.ops.object.camera_add(location=(30, -5, 15))
+    camera_obj = bpy.context.active_object
+    bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0))
+    empty_target = bpy.context.active_object
+    constraint = camera_obj.constraints.new(type='TRACK_TO')
+    constraint.target = empty_target
+    constraint.track_axis = 'TRACK_NEGATIVE_Z'
+    constraint.up_axis = 'UP_Y'
+    # Add a Sun light. Its location doesn't matter for lighting direction, only rotation does.
+    bpy.ops.object.light_add(type='SUN', align='WORLD', location=(10, 0, 0))
+    light_obj = bpy.context.active_object
+    light_obj.rotation_euler = ( 0, math.radians(90),  0)
+    light_obj.data.energy = 3
 
-    # Ensure we are in object mode before accessing mesh data
-    if obj.mode == 'EDIT':
-        bpy.ops.object.mode_set(mode='OBJECT')
 
-    # --- Calculations ---
-    # The morph factor will be from 0.0 to 1.0
-    morph_factor = morph_percentage / 100.0
+    scene = bpy.context.scene
+    scene.camera = camera_obj
+    scene.render.filepath = filepath
+    scene.render.image_settings.file_format = 'PNG'
+    scene.render.film_transparent = True
+    scene.render.resolution_x = 512
+    scene.render.resolution_y = 512
+
+    bpy.ops.render.render(write_still=True)
     
-    # Get the dimensions of the object to calculate the radius
-    # We assume the base is on the XY plane
-    square_width = obj.dimensions.x
-    
-    # To preserve the area, Area_square = Area_circle
-    # size^2 = pi * r^2  =>  r = sqrt(size^2 / pi)
-    radius = math.sqrt(square_width**2 / math.pi)
+    bpy.ops.object.select_all(action='DESELECT')
+    camera_obj.select_set(True)
+    light_obj.select_set(True)
+    empty_target.select_set(True)
+    bpy.ops.object.delete()
 
-    # --- Mesh Modification ---
-    # Create a BMesh from the object's mesh data
-    bm = bmesh.new()
-    bm.from_mesh(obj.data)
 
-    # Identify top and bottom vertices
-    # Get the height from the object's bounding box to handle any origin point
-    z_coords = [v.co.z for v in bm.verts]
-    min_z, max_z = min(z_coords), max(z_coords)
+# --- Main Execution ---
+if __name__ == "__main__":
     
-    # A small epsilon for floating point comparisons
-    epsilon = 0.0001
-    
-    top_verts = [v for v in bm.verts if abs(v.co.z - max_z) < epsilon]
-    bottom_verts = [v for v in bm.verts if abs(v.co.z - min_z) < epsilon]
-
-    # --- Morphing Logic ---
-    for v in top_verts + bottom_verts:
-        # Original position of the vertex
-        original_pos = v.co.copy()
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
         
-        # Calculate the vector from the center (0,0) to the vertex on the XY plane
-        vec_xy = original_pos.xy
-        
-        # If the vector has a length (i.e., not the center vertex if one exists)
-        if vec_xy.length > 0:
-            # The target position is on a circle. We find this by normalizing
-            # the vector from the center to the vertex and scaling it by the new radius.
-            target_pos_xy = vec_xy.normalized() * radius
-            
-            # Interpolate between the original and target position using the morph factor
-            # new_pos = original * (1 - factor) + target * factor
-            final_pos_xy = original_pos.xy.lerp(target_pos_xy, morph_factor)
-            
-            # Update the vertex's X and Y coordinates
-            v.co.x = final_pos_xy.x
-            v.co.y = final_pos_xy.y
-            # Z coordinate remains unchanged
-
-    # --- Finalization ---
-    # Write the BMesh data back to the object's mesh
-    bm.to_mesh(obj.data)
-    # Free the BMesh
-    bm.free()
+    # --- Define your morphing job here ---
+    SOURCE_SHAPE_NAME = "Sphere"
+    TARGET_SHAPE_NAME = "Cube"
+    NUM_FRAMES = 20
     
-    # Update the viewport to show the changes
-    obj.data.update()
+    body_pattern = 'grid_05_08.png'
+    fractal = 'F (5).png'
+    
 
+    # --- Prepare output directories ---
+    folder_name = f"{SOURCE_SHAPE_NAME}_to_{TARGET_SHAPE_NAME}_Render"
+    output_folder = bpy.path.abspath(f"//{folder_name}/")
+    baked_textures_folder = os.path.join(output_folder, "baked_textures")
+    if not os.path.exists(output_folder): os.makedirs(output_folder)
+    if not os.path.exists(baked_textures_folder): os.makedirs(baked_textures_folder)
+    print(f"Render output will be saved to: {output_folder}")
+    print(f"Baked textures will be saved to: {baked_textures_folder}")
+    
+    # --- Set up paths for bakeImage module ---
+    # Assuming 'dir' from your snippet refers to the main scripts path
+    base_path = dir
+    pattern_path = os.path.join(base_path, 'Assets/patterns')
+    fractal_path = os.path.join(base_path, 'Assets/fractals')
+    path1 = os.path.join(pattern_path, body_pattern)
+    path2 = os.path.join(fractal_path, fractal)
 
-# --- Blender Operator Class ---
-# This class creates a tool that can be run from the Blender UI
-
-class MORPH_OT_creator(bpy.types.Operator):
-    """Creates a prism and morphs it into a cylinder"""
-    bl_idname = "mesh.morph_creator"
-    bl_label = "Create and Morph Prism"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    # Add a property for the user to control the morph percentage
-    morph_percent: bpy.props.FloatProperty(
-        name="Morph %",
-        description="The percentage of morph from square to circle (0 to 100)",
-        default=50.0,
-        min=0.0,
-        max=100.0
-    )
-
-    def execute(self, context):
-        # --- Main Execution ---
-        # 1. Clear existing mesh objects for a clean scene (optional)
+    # --- Render Loop ---
+    for i in range(NUM_FRAMES):
+        print(f"--- Processing Frame {i+1}/{NUM_FRAMES} ---")
+        
+        morph_progress = i / (NUM_FRAMES - 1) -0.01
+        
+        # 1. Create the morphed object for this frame
+        morphed_obj, obj_type = create_morphed_object(
+            SOURCE_SHAPE_NAME, TARGET_SHAPE_NAME, morph_progress
+        )
+        print(f"Created '{obj_type}' with morph value {morph_progress:.2f}")
+        
+        # 2. Apply and Bake material using your custom module
+        # This assumes the morphed_obj is the 'body'
+        try:
+            texture_name = f"baked_texture_frame_{i:03d}"
+            addImageTextures.addTextureImageWithUVProject(morphed_obj, "Sphere", path1, path2)
+            bakeImage.bake_material_to_new_uv_and_image(morphed_obj, texture_name, baked_textures_folder)
+            print(f"Applied and baked material to '{morphed_obj.name}'")
+            
+        except Exception as e:
+            print(f"Could not bake material for frame {i}: {e}")
+       
+        # 3. Render the textured object
+        frame_filepath = os.path.join(output_folder, f"frame_{i:03d}.png")
+        render_frame(morphed_obj, frame_filepath)
+        print(f"Rendered frame to {frame_filepath}")
+#        stop
+        # 4. Delete the morphed object to prepare for the next loop
         bpy.ops.object.select_all(action='DESELECT')
-        bpy.ops.object.select_by_type(type='MESH')
+        morphed_obj.select_set(True)
         bpy.ops.object.delete()
 
-        # 2. Create the base cube
-        height = 6.0
-        size = 3.0
-        base_object = create_base_cube(height, size)
-        
-        # Make sure the new object is active and selected
-        context.view_layer.objects.active = base_object
-        base_object.select_set(True)
-
-        # 3. Morph the object using the property value
-        morph_to_cylinder(base_object, self.morph_percent)
-        
-        self.report({'INFO'}, f"Morphed prism created with {self.morph_percent}% morph.")
-
-        return {'FINISHED'}
-
-
-# --- Registration ---
-# This is required to make the operator available in Blender
-
-def menu_func(self, context):
-    self.layout.operator(MORPH_OT_creator.bl_idname, icon='MOD_SUBSURF')
-
-def register():
-    bpy.utils.register_class(MORPH_OT_creator)
-    bpy.types.VIEW3D_MT_add.append(menu_func)
-
-def unregister():
-    bpy.utils.unregister_class(MORPH_OT_creator)
-    bpy.types.VIEW3D_MT_add.remove(menu_func)
-
-
-# This allows you to run the script directly from Blender's Text Editor
-if __name__ == "__main__":
-    register()
-
-    # You can also run the operator directly for testing
-    bpy.ops.mesh.morph_creator(morph_percent=50)
-
+    print(f"\nSUCCESS: Rendered {NUM_FRAMES} frames.")
